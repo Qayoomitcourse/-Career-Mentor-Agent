@@ -40,8 +40,7 @@ Reply with only a simple field name like:
 - graphic designer
 - ai
 
-❌ Do not explain.  
-✅ Just output the field name.
+Do not explain.Just output the field name.
 """,
     model=model
 )
