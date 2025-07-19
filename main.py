@@ -1,81 +1,103 @@
+# 📦 Imports
 import os
-from dotenv import load_dotenv
-from agents import Agent, Runner, AsyncOpenAI, OpenAIChatCompletionsModel
-from agents.run import RunConfig
-from random_tool import get_career_roadmap
+from dotenv import load_dotenv 
+from agents import Agent, Runner, AsyncOpenAI, OpenAIChatCompletionsModel  
+from agents.run import RunConfig  
 
+from game_tools import roll_dice, generate_event, roll_dice_tool, generate_event_tool
+
+# 🌐 Load API Key from .env file
 load_dotenv()
+api_key = os.getenv("GEMINI_API_KEY")
 
-gemini_api_key = os.getenv("GEMINI_API_KEY")
-if not gemini_api_key:
-    raise ValueError("❌ GEMINI_API_KEY not found in environment. Please check your .env file.")
+if not api_key:
+    raise ValueError("GEMINI_API_KEY not found. Please set it in your .env file.")
 
-# Configure external Gemini client
-external_client = AsyncOpenAI(
-    api_key=gemini_api_key,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+# 🤖 Create OpenAI-compatible client for Gemini
+client = AsyncOpenAI(
+    api_key=api_key,
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
 )
 
-# Define model
+# 💬 Define the model used by all agents
 model = OpenAIChatCompletionsModel(
     model="gemini-2.0-flash",
-    openai_client=external_client
+    openai_client=client
 )
 
-# Run configuration
+# ⚙️ Runner configuration
 config = RunConfig(
     model=model,
-    model_provider=external_client,
-    tracing_disabled=True
+    model_provider=client,
+    tracing_disabled=True  # Disable OpenAI tracing (for debugging/logging)
 )
 
-# Career field selector
-career_agent: Agent = Agent(
-    name="Career Agent",
+# 🎭 Narrator Agent - guides the main story
+narrator_agent = Agent(
+    name="Narrator Agent",
     instructions="""
-You are a career suggestion expert. You ask the user about their interests and suggest **one relevant career field name only** as your final output.
-Reply with only a simple field name like:
-- software engineer
-- data science
-- graphic designer
-- ai
+You are a fantasy game narrator. Tell the story, describe the scene, and prompt the player for choices.
+If a fight begins, hand off to MonsterAgent. If loot or item appears, hand off to ItemAgent.
+""",
+    model=model,
+    tools=[generate_event_tool]  # ✅ Fixed
+)
 
-❌ Do not explain.  
-✅ Just output the field name.
+# 🐉 Monster Agent
+monster_agent = Agent(
+    name="Monster Agent",
+    instructions="""
+You simulate fantasy combat with monsters. Use roll_dice() to determine hit success and damage.
+Narrate the battle in turns. End the fight and return control to NarratorAgent when the monster is defeated.
+""",
+    model=model,
+    tools=[roll_dice_tool]  # ✅ Fixed
+)
+# 🪙 Item Agent - handles items and rewards
+item_agent = Agent(
+    name="Item Agent",
+    instructions="""
+You manage inventory and rewards. When loot is found, describe it and ask the player if they want to keep or use it.
+Return control to NarratorAgent when done.
 """,
     model=model
 )
 
-# Roadmap generator
-skill_agent: Agent = Agent(
-    name="Skill Agent",
-    instructions="You share a roadmap using the get_career_roadmap tool. Input will be a career field name like 'software engineer' or 'ai'.",
-    model=model,
-    tools=[get_career_roadmap]
-)
-
-# Job title suggester
-job_agent: Agent = Agent(
-    name="Job Agent",
-    instructions="You suggest job titles in the chosen career field. Input will be a simple career field like 'software engineer'.",
-    model=model
-)
-
-# Main flow
+# 🚀 Main Adventure Loop
 def main():
-    print("🎓 Career Mentor Agent")
-    interest = input("What are your interests? -> ").strip()
+    print("🎮 Welcome to the Fantasy Adventure Game!")
+    player_name = input("What is your hero's name? -> ").strip()
 
-    result1 = Runner.run_sync(career_agent, interest, run_config=config)
-    field = result1.final_output.strip().lower().split("\n")[0]  # Clean and isolate field
+    # 🏁 Start the story with the narrator
+    intro = f"Begin the story with a hero named {player_name} entering a mysterious dungeon."
+    result1 = Runner.run_sync(narrator_agent, intro, run_config=config)
+    print("\n📜 Story Begins:\n", result1.final_output)
 
-    print("\n🎯 Suggested Career Field:", field)
+    # 🎲 Simulate a random encounter
+    print("\n🎲 Rolling for random encounter...\n")
+    roll = roll_dice()  # Now a regular Python function, not a FunctionTool
 
-    result2 = Runner.run_sync(skill_agent, field, run_config=config)
-    print("\n🛠️ Required Skills:", result2.final_output)
+    # 👾 Monster Encounter
+    if roll > 15:
+        print("👾 A monster appears!")
+        result2 = Runner.run_sync(monster_agent, f"A wild beast blocks {player_name}'s path!", run_config=config)
+        print("\n⚔️ Battle:\n", result2.final_output)
 
-    result3 = Runner.run_sync(job_agent, field, run_config=config)
-    print("\n💼 Suggested Job Titles:", result3.final_output)
+    # 🎁 Item Discovery
+    elif 8 < roll <= 15:
+        print("🎁 An item glows in the darkness...")
+        result3 = Runner.run_sync(item_agent, f"{player_name} finds a magical chest in the corner.", run_config=config)
+        print("\n💎 Loot:\n", result3.final_output)
 
+    # 🌿 No Event
+    else:
+        print("🌿 The path remains calm for now...")
+
+    # 📚 Continue the story with a new generated event
+    event = generate_event()
+    result4 = Runner.run_sync(narrator_agent, f"After that, {player_name} continues and: {event}", run_config=config)
+    print("\n📚 Continued Adventure:\n", result4.final_output)
+
+# ▶️ Run the game
 if __name__ == "__main__":
     main()
